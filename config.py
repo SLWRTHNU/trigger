@@ -40,15 +40,16 @@ SHUTTER_PIN = 16
 
 # --- Wireless Trigger (TRIGGER_MODE = "wireless") ---
 # WiFi credentials
-WIFI_SSID     = "YourNetworkSSID"
-WIFI_PASSWORD = "YourNetworkPassword"
+WIFI_SSID     = "NIKON"
+WIFI_PASSWORD = "07804936"
 
 # Target URL to GET when the shutter fires.
+# Run test_camera.py on the Pico to discover the correct URL for your camera.
 # Examples:
+#   Nikon  : "http://192.168.1.1/v1/shooting/action/capture"
 #   Sony   : "http://192.168.122.1:10000/sony/camera/actTakePicture"
 #   CHDK   : "http://192.168.0.1/control?cmd=shoot"
-#   Custom : "http://192.168.1.50/trigger"
-WIRELESS_URL = "http://192.168.1.100/trigger"
+WIRELESS_URL = "http://192.168.1.1/v1/shooting/action/capture"
 
 # Seconds to wait for the HTTP response before giving up.
 HTTP_TIMEOUT = 3

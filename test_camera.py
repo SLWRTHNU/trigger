@@ -18,8 +18,8 @@ import network
 import urequests
 import config
 
-WIFI_SSID     = "NIKON"
-WIFI_PASSWORD = "07804936"
+WIFI_SSID     = config.WIFI_SSID
+WIFI_PASSWORD = config.WIFI_PASSWORD
 TIMEOUT_S     = 4
 
 # Nikon Wireless Mobile Utility / SnapBridge HTTP API candidates.
@@ -183,8 +183,6 @@ def main():
     if ok:
         print(f"\n[5] Paste this into config.py:")
         print(f'    WIRELESS_URL = "{trigger_url}"')
-        print(f'    WIFI_SSID     = "{WIFI_SSID}"')
-        print(f'    WIFI_PASSWORD = "{WIFI_PASSWORD}"')
 
 
 main()
