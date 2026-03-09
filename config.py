@@ -5,8 +5,9 @@
 
 # --- Trigger Mode ---
 # "wired"    : GPIO pin drives an optocoupler wired to the camera shutter port
-# "wireless" : Pico W sends an HTTP request over WiFi to trigger the camera
-TRIGGER_MODE = "wireless"
+# "wireless" : Pico W sends an HTTP GET request over WiFi (Sony, CHDK, etc.)
+# "ptpip"    : PTP/IP binary protocol on port 15740 (Nikon SnapBridge / WMU)
+TRIGGER_MODE = "ptpip"
 
 # --- Sensor Type ---
 # "button"   : Momentary push-button (good for testing without a real sensor)
@@ -38,15 +39,17 @@ SHUTTER_HOLD_MS = 100
 # HIGH = trigger active.
 SHUTTER_PIN = 16
 
-# --- Wireless Trigger (TRIGGER_MODE = "wireless") ---
-# WiFi credentials
+# --- WiFi credentials (used by both "wireless" and "ptpip" modes) ---
 WIFI_SSID     = "NIKON"
 WIFI_PASSWORD = "07804936"
 
+# --- PTP/IP Trigger (TRIGGER_MODE = "ptpip") ---
+# IP address of the camera (it is the DHCP server, so normally .1).
+PTPIP_HOST = "192.168.1.1"
+
+# --- Wireless HTTP Trigger (TRIGGER_MODE = "wireless") ---
 # Target URL to GET when the shutter fires.
-# Run test_camera.py on the Pico to discover the correct URL for your camera.
 # Examples:
-#   Nikon  : "http://192.168.1.1/v1/shooting/action/capture"
 #   Sony   : "http://192.168.122.1:10000/sony/camera/actTakePicture"
 #   CHDK   : "http://192.168.0.1/control?cmd=shoot"
 WIRELESS_URL = "http://192.168.1.1/v1/shooting/action/capture"

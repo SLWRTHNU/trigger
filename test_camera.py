@@ -14,6 +14,7 @@ It will:
 
 import time
 import socket
+import struct
 import network
 import urequests
 import config
@@ -160,6 +161,26 @@ def simulate_button_press(url, method):
 
 
 # ------------------------------------------------------------------ #
+def test_ptpip(ip):
+    """Connect via PTP/IP and fire one test capture. Returns True on success."""
+    print(f"\n[3] Testing PTP/IP connection to {ip}:15740 ...")
+    from trigger_ptpip import PTPIPTrigger, PTPIP_PORT, _RC_OK
+    t = PTPIPTrigger()
+    # Override config host in case test is run before config is updated
+    t._ip = ip
+    try:
+        t.connect()
+        print("\n[4] Sending InitiateCapture ...")
+        t.fire()
+        t.disconnect()
+        return True
+    except OSError as e:
+        print(f"    PTP/IP error: {e}")
+        t.disconnect()
+        return False
+
+
+# ------------------------------------------------------------------ #
 def main():
     print("=" * 50)
     print("  Vibration Trigger — Camera Connection Test")
@@ -172,28 +193,31 @@ def main():
     # Step 2 — find camera IP + port
     camera_ip, camera_port = find_camera(gateway)
     if camera_ip is None:
-        print("\n[!] No camera HTTP server found on any known port.")
+        print("\n[!] No camera server found on any known port.")
         print("    Ports tried:", NIKON_PORTS)
-        print("    Check that the camera hotspot is active and in")
-        print("    'smart device / remote shooting' mode.")
+        print("    Check the camera hotspot is active and in remote-shooting mode.")
         return
 
-    # Step 3 — probe API
-    result = probe_endpoints(camera_ip, camera_port)
-    if result is None:
-        print("\n[!] No responsive endpoint found.")
-        print("    Your camera model may use a non-standard API path.")
-        return
-
-    trigger_url, trigger_method, _ = result
-
-    # Step 4 — fire
-    ok = simulate_button_press(trigger_url, trigger_method)
-
-    # Step 5 — report
-    if ok:
-        print(f"\n[5] Paste this into config.py:")
-        print(f'    WIRELESS_URL = "{trigger_url}"')
+    # Step 3 — protocol branch
+    if camera_port == 15740:
+        # PTP/IP — skip HTTP probing, test the binary protocol directly
+        ok = test_ptpip(camera_ip)
+        if ok:
+            print(f"\n[5] Paste this into config.py:")
+            print(f'    TRIGGER_MODE = "ptpip"')
+            print(f'    PTPIP_HOST   = "{camera_ip}"')
+    else:
+        result = probe_endpoints(camera_ip, camera_port)
+        if result is None:
+            print("\n[!] No responsive endpoint found.")
+            print("    Your camera model may use a non-standard API path.")
+            return
+        trigger_url, trigger_method, _ = result
+        ok = simulate_button_press(trigger_url, trigger_method)
+        if ok:
+            print(f"\n[5] Paste this into config.py:")
+            print(f'    TRIGGER_MODE = "wireless"')
+            print(f'    WIRELESS_URL = "{trigger_url}"')
 
 
 main()

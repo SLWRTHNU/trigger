@@ -19,6 +19,7 @@ import config
 from machine import Pin
 from trigger_wired    import WiredTrigger
 from trigger_wireless import WirelessTrigger
+from trigger_ptpip    import PTPIPTrigger
 
 # ---------------------------------------------------------------------------
 # On-board LED  (Pico W uses 'LED' string, not a GPIO number)
@@ -70,7 +71,12 @@ def read_adxl345(sensor):
 # Trigger setup
 # ---------------------------------------------------------------------------
 def setup_trigger():
-    if config.TRIGGER_MODE == "wireless":
+    if config.TRIGGER_MODE == "ptpip":
+        print("[trigger] Mode: ptpip")
+        t = PTPIPTrigger()
+        t.connect()
+        return t
+    elif config.TRIGGER_MODE == "wireless":
         print("[trigger] Mode: wireless")
         t = WirelessTrigger()
         t.connect()
