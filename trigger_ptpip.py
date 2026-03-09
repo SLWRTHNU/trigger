@@ -27,8 +27,9 @@ _PKT_CMD_REQUEST  = 0x00000006
 _PKT_CMD_RESPONSE = 0x00000007
 
 # PTP operation codes
-_OP_OPEN_SESSION     = 0x1002
-_OP_INITIATE_CAPTURE = 0x100E
+_OP_OPEN_SESSION       = 0x1002
+_OP_INITIATE_CAPTURE   = 0x100E
+_OP_NIKON_SET_CTRL     = 0x90C2   # Nikon_SetControlMode — required before capture
 
 # PTP response codes
 _RC_OK = 0x2001
@@ -140,7 +141,19 @@ class PTPIPTrigger:
         rc = self._op(_OP_OPEN_SESSION, [1])
         if rc != _RC_OK:
             raise OSError(f'[ptpip] OpenSession failed: 0x{rc:04X}')
-        print("[ptpip] PTP session open — ready")
+        print("[ptpip] PTP session open")
+
+        # --- Nikon_SetControlMode (0x90C2, param=1) ---
+        # Puts Nikon cameras into remote-shooting mode before InitiateCapture.
+        # Harmless on cameras that don't support it (response code is ignored).
+        try:
+            rc2 = self._op(_OP_NIKON_SET_CTRL, [1])
+            if rc2 == _RC_OK:
+                print("[ptpip] Nikon remote-control mode set — ready")
+            else:
+                print(f"[ptpip] SetControlMode → 0x{rc2:04X} (non-fatal) — ready")
+        except OSError as e:
+            print(f"[ptpip] SetControlMode skipped ({e}) — ready")
 
     # ------------------------------------------------------------------ #
     def _op(self, op_code, params=None):
@@ -164,20 +177,22 @@ class PTPIPTrigger:
             self.connect()
 
     def fire(self):
-        """Send InitiateCapture to the camera."""
-        self._ensure_connected()
-        print("[ptpip] InitiateCapture →")
-        try:
-            # StorageID=0 (default), ObjectFormatCode=0 (default)
-            rc = self._op(_OP_INITIATE_CAPTURE, [0x00000000, 0x00000000])
-            if rc == _RC_OK:
-                print("[ptpip] ← OK (shutter fired)")
-            else:
-                print(f"[ptpip] ← 0x{rc:04X}")
-        except OSError as e:
-            print(f"[ptpip] fire() failed: {e}")
-            self._cmd = None
-            self._evt = None
+        """Send InitiateCapture to the camera (retries once on connection drop)."""
+        for attempt in range(2):
+            self._ensure_connected()
+            print(f"[ptpip] InitiateCapture → (attempt {attempt + 1})")
+            try:
+                # StorageID=0 (default), ObjectFormatCode=0 (default)
+                rc = self._op(_OP_INITIATE_CAPTURE, [0x00000000, 0x00000000])
+                if rc == _RC_OK:
+                    print("[ptpip] ← OK (shutter fired)")
+                else:
+                    print(f"[ptpip] ← 0x{rc:04X}")
+                return
+            except OSError as e:
+                print(f"[ptpip] attempt {attempt + 1} failed: {e}")
+                self.disconnect()   # force reconnect on next attempt
+        print("[ptpip] fire() gave up after retry")
 
     # ------------------------------------------------------------------ #
     def disconnect(self):
