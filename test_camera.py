@@ -6,7 +6,7 @@ Thonny REPL or with:  mpremote run test_camera.py
 
 It will:
   1. Connect to the NIKON WiFi hotspot
-  2. Discover the camera's IP from the DHCP gateway
+  2. Discover the camera's IP + port by scanning common Nikon ports
   3. Probe known Nikon HTTP API endpoints
   4. Fire a live test trigger (simulating a button press)
   5. Print the WIRELESS_URL to paste into config.py
@@ -22,8 +22,15 @@ WIFI_SSID     = config.WIFI_SSID
 WIFI_PASSWORD = config.WIFI_PASSWORD
 TIMEOUT_S     = 4
 
-# Nikon Wireless Mobile Utility / SnapBridge HTTP API candidates.
-# (ip, path, method)  — ip filled in at runtime from DHCP gateway.
+# Ports that Nikon cameras are known to use for their HTTP API.
+# 80    — Wireless Mobile Utility (older D-series)
+# 8080  — WMU on some bodies
+# 15740 — PTP/IP (Nikon / MTP-over-IP)
+# 8888  — seen on some Z-series / SnapBridge builds
+NIKON_PORTS = [80, 8080, 15740, 8888, 3000]
+
+# HTTP API paths to probe once a responding port is found.
+# (path, method)
 API_PATHS = [
     ("/v1/shooting/action/capture", "POST"),
     ("/v1/shooting/action/af",      "POST"),
@@ -64,8 +71,8 @@ def get_gateway(wlan):
 
 
 # ------------------------------------------------------------------ #
-def tcp_reachable(ip, port=80):
-    """Return True if the host has port 80 open."""
+def tcp_reachable(ip, port):
+    """Return True if ip:port accepts a TCP connection."""
     try:
         s = socket.socket()
         s.settimeout(TIMEOUT_S)
@@ -76,31 +83,33 @@ def tcp_reachable(ip, port=80):
         return False
 
 
-def find_camera_ip(gateway):
-    """Try the DHCP gateway, then common fallbacks."""
+def find_camera(gateway):
+    """Scan gateway + fallback IPs across all known Nikon ports.
+    Returns (ip, port) of the first responding socket, or (None, None)."""
     candidates = [gateway, "192.168.1.1", "192.168.0.1", "192.168.122.1"]
-    # deduplicate, preserve order
     seen = set()
     ordered = [c for c in candidates if c and not (c in seen or seen.add(c))]
 
     print("\n[2] Scanning for camera HTTP server...")
     for ip in ordered:
-        print(f"    Probing {ip}:80 ... ", end="")
-        if tcp_reachable(ip):
-            print("OPEN")
-            return ip
-        print("no response")
-    return None
+        for port in NIKON_PORTS:
+            print(f"    Probing {ip}:{port} ... ", end="")
+            if tcp_reachable(ip, port):
+                print("OPEN")
+                return ip, port
+            print("no response")
+    return None, None
 
 
 # ------------------------------------------------------------------ #
-def probe_endpoints(ip):
+def probe_endpoints(ip, port):
     """Try each API path and return the first usable (url, method)."""
-    print(f"\n[3] Probing Nikon API endpoints on {ip} ...")
+    host = f"{ip}:{port}" if port != 80 else ip
+    print(f"\n[3] Probing Nikon API endpoints on {host} ...")
     found = None
 
     for path, method in API_PATHS:
-        url = f"http://{ip}{path}"
+        url = f"http://{host}{path}"
         print(f"    {method} {url} ... ", end="")
         try:
             if method == "POST":
@@ -157,18 +166,20 @@ def main():
     print("=" * 50)
 
     # Step 1 — WiFi
-    wlan      = connect_wifi()
-    gateway   = get_gateway(wlan)
+    wlan    = connect_wifi()
+    gateway = get_gateway(wlan)
 
-    # Step 2 — find camera IP
-    camera_ip = find_camera_ip(gateway)
+    # Step 2 — find camera IP + port
+    camera_ip, camera_port = find_camera(gateway)
     if camera_ip is None:
-        print("\n[!] No camera HTTP server found.")
-        print("    Ensure the camera WiFi hotspot is active.")
+        print("\n[!] No camera HTTP server found on any known port.")
+        print("    Ports tried:", NIKON_PORTS)
+        print("    Check that the camera hotspot is active and in")
+        print("    'smart device / remote shooting' mode.")
         return
 
     # Step 3 — probe API
-    result = probe_endpoints(camera_ip)
+    result = probe_endpoints(camera_ip, camera_port)
     if result is None:
         print("\n[!] No responsive endpoint found.")
         print("    Your camera model may use a non-standard API path.")
