@@ -2,8 +2,13 @@
 Vibration Camera Trigger — main entry point
 Raspberry Pi Pico 2 W  |  MicroPython
 
-Reads a vibration sensor (digital SW-420 style OR I2C ADXL345 accelerometer)
-and fires a camera shutter via a wired optocoupler or a WiFi HTTP request.
+Reads a sensor (button, SW-420 digital, or ADXL345 accelerometer) and fires
+a camera shutter via a wired optocoupler or a WiFi HTTP request.
+
+Sensor types (set SENSOR_TYPE in config.py):
+  "button"   — momentary push-button, fires once per press (edge-triggered)
+  "digital"  — SW-420 / FC-28 vibration module digital output
+  "adxl345"  — ADXL345 I2C accelerometer with configurable threshold
 
 Edit config.py to configure your setup, then copy all .py files to the Pico.
 """
@@ -35,10 +40,9 @@ def blink_led(times=1, on_ms=80, off_ms=80):
 # ---------------------------------------------------------------------------
 # Sensor setup
 # ---------------------------------------------------------------------------
-def setup_digital_sensor():
-    """SW-420 / FC-28 type: digital output LOW when vibration detected."""
-    pin = Pin(config.VIBRATION_PIN, Pin.IN, Pin.PULL_UP)
-    return pin
+def setup_digital_pin():
+    """SW-420 / FC-28 or button: active-LOW with internal pull-up."""
+    return Pin(config.SENSOR_PIN, Pin.IN, Pin.PULL_UP)
 
 
 def setup_adxl345():
@@ -50,7 +54,7 @@ def setup_adxl345():
 
 
 def read_digital_sensor(pin):
-    """Return True when vibration is detected (active-LOW sensor)."""
+    """Return True when active (active-LOW: LOW = triggered)."""
     return pin.value() == 0
 
 
@@ -58,7 +62,6 @@ def read_adxl345(sensor):
     """Return True when resultant acceleration exceeds the threshold."""
     import math
     x, y, z = sensor.acceleration
-    # Subtract 1 g on whichever axis is vertical — approximate tilt-free delta
     magnitude = math.sqrt(x*x + y*y + z*z)
     return abs(magnitude - 9.81) > config.ACCEL_THRESHOLD
 
@@ -82,40 +85,59 @@ def setup_trigger():
 # ---------------------------------------------------------------------------
 def run():
     print("=== Vibration Camera Trigger ===")
-    print(f"  Sensor : {'ADXL345 (I2C)' if config.USE_ADXL345 else 'Digital (SW-420)'}")
+    print(f"  Sensor : {config.SENSOR_TYPE}")
     print(f"  Mode   : {config.TRIGGER_MODE}")
     print(f"  Cooldown: {config.COOLDOWN_MS} ms")
 
     # Sensor init
-    if config.USE_ADXL345:
+    sensor_type = config.SENSOR_TYPE
+
+    if sensor_type == "adxl345":
         sensor = setup_adxl345()
         read_fn = lambda: read_adxl345(sensor)
+        # Level-triggered: fires whenever above threshold
+        edge_mode = False
+    elif sensor_type == "button":
+        pin = setup_digital_pin()
+        read_fn = lambda: read_digital_sensor(pin)
+        # Edge-triggered: fires once per press, not while held
+        edge_mode = True
     else:
-        sensor_pin = setup_digital_sensor()
-        read_fn = lambda: read_digital_sensor(sensor_pin)
+        # "digital" — SW-420 / FC-28
+        pin = setup_digital_pin()
+        read_fn = lambda: read_digital_sensor(pin)
+        edge_mode = False
 
     # Trigger init
     trigger = setup_trigger()
 
     last_trigger_ms = 0
+    prev_active = False
 
     # Ready indicator
     blink_led(3, on_ms=100, off_ms=100)
-    print("[main] Ready — waiting for vibration...")
+    ready_msg = "button press" if sensor_type == "button" else "vibration"
+    print(f"[main] Ready — waiting for {ready_msg}...")
 
     while True:
-        vibrating = read_fn()
+        active = read_fn()
 
         if config.LED_ALWAYS_ON_WHEN_ACTIVE:
-            led.value(vibrating)
+            led.value(active)
 
-        if vibrating:
+        # For button: only fire on the falling edge (press, not hold).
+        # For digital/adxl345: fire whenever the condition is True.
+        should_fire = (active and not prev_active) if edge_mode else active
+        prev_active = active
+
+        if should_fire:
             now = time.ticks_ms()
             elapsed = time.ticks_diff(now, last_trigger_ms)
 
             if elapsed >= config.COOLDOWN_MS:
                 last_trigger_ms = now
-                print(f"[main] Vibration detected — firing shutter")
+                event = "Button pressed" if sensor_type == "button" else "Vibration detected"
+                print(f"[main] {event} — firing shutter")
 
                 if not config.LED_ALWAYS_ON_WHEN_ACTIVE:
                     led.on()

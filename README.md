@@ -10,12 +10,13 @@ Supports two trigger modes:
 | **Wired** | GPIO → optocoupler → camera 2.5 mm / 3.5 mm remote shutter port |
 | **Wireless** | Pico W WiFi → HTTP GET → WiFi-enabled camera or relay |
 
-And two sensor types:
+And three sensor types:
 
-| Sensor | Notes |
-|--------|-------|
-| **SW-420 / FC-28** | Simple digital output, cheap, plug-and-play |
-| **ADXL345** | I2C accelerometer, adjustable threshold, more control |
+| Sensor | `SENSOR_TYPE` | Notes |
+|--------|---------------|-------|
+| **Push button** | `"button"` | For testing — fires once per press, no extra hardware |
+| **SW-420 / FC-28** | `"digital"` | Simple vibration module, cheap, plug-and-play |
+| **ADXL345** | `"adxl345"` | I2C accelerometer, adjustable threshold, more control |
 
 ---
 
@@ -33,22 +34,39 @@ adxl345.py          — Lightweight ADXL345 I2C driver
 
 ## Hardware
 
-### Vibration Sensor Option 1 — SW-420 (Recommended for simplicity)
+### Sensor Option 1 — Push Button (Testing / no sensor needed)
+
+Set `SENSOR_TYPE = "button"` in `config.py`.
+
+```
+Button           Pico 2 W
+──────           ─────────────────────────
+Leg A        →   GP15  (configurable via SENSOR_PIN)
+Leg B        →   GND   (any GND pin, e.g. pin 38)
+```
+
+The Pico's internal pull-up resistor is enabled automatically — no external
+resistor needed.  Pressing the button fires the shutter exactly once per
+press regardless of how long you hold it.
+
+### Sensor Option 2 — SW-420 (Recommended for production use)
+
+Set `SENSOR_TYPE = "digital"` in `config.py`.
 
 ```
 SW-420 Module    Pico 2 W
 ─────────────    ─────────────────────────
 VCC          →   3V3OUT  (pin 36)
 GND          →   GND     (pin 38)
-DO           →   GP15    (configurable via VIBRATION_PIN)
+DO           →   GP15    (configurable via SENSOR_PIN)
 ```
 
 The SW-420 module includes an onboard potentiometer to set vibration
 sensitivity. The DO pin goes LOW when vibration is detected.
 
-### Vibration Sensor Option 2 — ADXL345 (I2C accelerometer)
+### Sensor Option 3 — ADXL345 (I2C accelerometer)
 
-Set `USE_ADXL345 = True` in `config.py`.
+Set `SENSOR_TYPE = "adxl345"` in `config.py`.
 
 ```
 ADXL345      Pico 2 W

@@ -6,17 +6,22 @@
 # --- Trigger Mode ---
 # "wired"    : GPIO pin drives an optocoupler wired to the camera shutter port
 # "wireless" : Pico W sends an HTTP request over WiFi to trigger the camera
-TRIGGER_MODE = "wired"
+TRIGGER_MODE = "wireless"
 
-# --- Vibration Sensor ---
-# GPIO pin connected to the sensor's digital output (DO) pin.
-# SW-420 / FC-28 style sensors output LOW when vibration is detected.
-VIBRATION_PIN = 15
+# --- Sensor Type ---
+# "button"   : Momentary push-button (good for testing without a real sensor)
+# "digital"  : SW-420 / FC-28 vibration module with digital output
+# "adxl345"  : ADXL345 I2C accelerometer
+SENSOR_TYPE = "button"
 
-# ADXL345 over I2C (set USE_ADXL345 = True to use instead of a digital sensor)
-USE_ADXL345    = False
-I2C_SDA_PIN    = 4
-I2C_SCL_PIN    = 5
+# GPIO pin for "button" and "digital" sensor types.
+# Button  : wire one leg to this pin, other leg to GND (uses internal pull-up).
+# SW-420  : connect module DO pin here.
+SENSOR_PIN = 15
+
+# ADXL345 over I2C ("adxl345" sensor type only)
+I2C_SDA_PIN     = 4
+I2C_SCL_PIN     = 5
 # Acceleration magnitude threshold (m/s²) above which a trigger fires.
 # Earth gravity is ~9.81 m/s².  Start around 1.0 and tune.
 ACCEL_THRESHOLD = 1.5
