@@ -41,22 +41,12 @@ def blink_led(times=1, on_ms=80, off_ms=80):
 # ---------------------------------------------------------------------------
 # Sensor setup
 # ---------------------------------------------------------------------------
-def setup_digital_pin():
-    """SW-420 / FC-28 or button: active-LOW with internal pull-up."""
-    return Pin(config.SENSOR_PIN, Pin.IN, Pin.PULL_UP)
-
-
 def setup_adxl345():
     """ADXL345 via I2C.  Returns an ADXL345 helper object."""
     from adxl345 import ADXL345
     from machine import I2C
     i2c = I2C(0, sda=Pin(config.I2C_SDA_PIN), scl=Pin(config.I2C_SCL_PIN))
     return ADXL345(i2c)
-
-
-def read_digital_sensor(pin):
-    """Return True when active (active-LOW: LOW = triggered)."""
-    return pin.value() == 0
 
 
 def read_adxl345(sensor):
@@ -87,74 +77,83 @@ def setup_trigger():
 
 
 # ---------------------------------------------------------------------------
-# Main loop
+# IRQ loop — button / digital sensor
+# Hardware interrupt fires the moment the pin goes LOW.
+# The ISR just sets a flag; all real work happens in the main loop.
+# ---------------------------------------------------------------------------
+def _irq_loop(trigger, label):
+    fired = [False]
+
+    def _isr(_pin):
+        fired[0] = True
+
+    pin = Pin(config.SENSOR_PIN, Pin.IN, Pin.PULL_UP)
+    pin.irq(trigger=Pin.IRQ_FALLING, handler=_isr)
+
+    blink_led(3, on_ms=100, off_ms=100)
+    print(f"[main] Ready (IRQ) — waiting for {label}...")
+
+    last_ms = 0
+    while True:
+        if fired[0]:
+            fired[0] = False
+            now = time.ticks_ms()
+            if time.ticks_diff(now, last_ms) >= config.COOLDOWN_MS:
+                last_ms = now
+                print(f"[main] {label} — firing shutter")
+                led.on()
+                trigger.fire()
+                led.off()
+        time.sleep_ms(1)
+
+
+# ---------------------------------------------------------------------------
+# Poll loop — ADXL345 (I2C can't use IRQ)
+# ---------------------------------------------------------------------------
+def _poll_loop(trigger, read_fn, label):
+    blink_led(3, on_ms=100, off_ms=100)
+    print(f"[main] Ready (poll 1ms) — waiting for {label}...")
+
+    last_ms = 0
+    prev = False
+    while True:
+        active = read_fn()
+        if config.LED_ALWAYS_ON_WHEN_ACTIVE:
+            led.value(active)
+        if active and not prev:          # rising edge (went above threshold)
+            now = time.ticks_ms()
+            if time.ticks_diff(now, last_ms) >= config.COOLDOWN_MS:
+                last_ms = now
+                print(f"[main] {label} — firing shutter")
+                if not config.LED_ALWAYS_ON_WHEN_ACTIVE:
+                    led.on()
+                trigger.fire()
+                if not config.LED_ALWAYS_ON_WHEN_ACTIVE:
+                    led.off()
+        prev = active
+        time.sleep_ms(1)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
 # ---------------------------------------------------------------------------
 def run():
     print("=== Vibration Camera Trigger ===")
-    print(f"  Sensor : {config.SENSOR_TYPE}")
-    print(f"  Mode   : {config.TRIGGER_MODE}")
+    print(f"  Sensor  : {config.SENSOR_TYPE}")
+    print(f"  Mode    : {config.TRIGGER_MODE}")
     print(f"  Cooldown: {config.COOLDOWN_MS} ms")
 
-    # Sensor init
-    sensor_type = config.SENSOR_TYPE
-
-    if sensor_type == "adxl345":
-        sensor = setup_adxl345()
-        read_fn = lambda: read_adxl345(sensor)
-        # Level-triggered: fires whenever above threshold
-        edge_mode = False
-    elif sensor_type == "button":
-        pin = setup_digital_pin()
-        read_fn = lambda: read_digital_sensor(pin)
-        # Edge-triggered: fires once per press, not while held
-        edge_mode = True
-    else:
-        # "digital" — SW-420 / FC-28
-        pin = setup_digital_pin()
-        read_fn = lambda: read_digital_sensor(pin)
-        edge_mode = False
-
-    # Trigger init
     trigger = setup_trigger()
 
-    last_trigger_ms = 0
-    prev_active = False
-
-    # Ready indicator
-    blink_led(3, on_ms=100, off_ms=100)
-    ready_msg = "button press" if sensor_type == "button" else "vibration"
-    print(f"[main] Ready — waiting for {ready_msg}...")
-
-    while True:
-        active = read_fn()
-
-        if config.LED_ALWAYS_ON_WHEN_ACTIVE:
-            led.value(active)
-
-        # For button: only fire on the falling edge (press, not hold).
-        # For digital/adxl345: fire whenever the condition is True.
-        should_fire = (active and not prev_active) if edge_mode else active
-        prev_active = active
-
-        if should_fire:
-            now = time.ticks_ms()
-            elapsed = time.ticks_diff(now, last_trigger_ms)
-
-            if elapsed >= config.COOLDOWN_MS:
-                last_trigger_ms = now
-                event = "Button pressed" if sensor_type == "button" else "Vibration detected"
-                print(f"[main] {event} — firing shutter")
-
-                if not config.LED_ALWAYS_ON_WHEN_ACTIVE:
-                    led.on()
-
-                trigger.fire()
-
-                if not config.LED_ALWAYS_ON_WHEN_ACTIVE:
-                    led.off()
-
-        # Small sleep keeps the loop CPU-friendly without missing fast events.
-        time.sleep_ms(10)
+    sensor_type = config.SENSOR_TYPE
+    if sensor_type == "adxl345":
+        sensor = setup_adxl345()
+        _poll_loop(trigger, lambda: read_adxl345(sensor), "vibration")
+    elif sensor_type == "button":
+        _irq_loop(trigger, "button press")
+    else:
+        # "digital" — SW-420 / FC-28
+        _irq_loop(trigger, "vibration")
 
 
 if __name__ == "__main__":

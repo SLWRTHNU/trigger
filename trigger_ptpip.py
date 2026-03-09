@@ -157,7 +157,7 @@ class PTPIPTrigger:
 
     # ------------------------------------------------------------------ #
     def _op(self, op_code, params=None):
-        """Send a PTP operation (no data phase) and return the response code."""
+        """Send a PTP operation and wait for the camera's response code."""
         tid = self._tid
         self._tid += 1
         payload = struct.pack('<IHI', 1, op_code, tid)
@@ -169,6 +169,20 @@ class PTPIPTrigger:
             raise OSError(f'[ptpip] Expected Cmd_Response, got 0x{ptype:08X}')
         return struct.unpack('<H', data[:2])[0]
 
+    def _send_op(self, op_code, params=None):
+        """Send a PTP operation without waiting for the response (fire-and-forget).
+
+        The camera fires the shutter when it *receives* the packet, not when it
+        sends back OK.  Skipping the round-trip read shaves 10–50 ms of WiFi
+        latency off every shot.
+        """
+        tid = self._tid
+        self._tid += 1
+        payload = struct.pack('<IHI', 1, op_code, tid)
+        for p in (params or []):
+            payload += struct.pack('<I', p)
+        self._cmd.send(_make_pkt(_PKT_CMD_REQUEST, payload))
+
     # ------------------------------------------------------------------ #
     def _ensure_connected(self):
         if self._cmd is None or not self._wlan.isconnected():
@@ -177,20 +191,20 @@ class PTPIPTrigger:
             self.connect()
 
     def fire(self):
-        """Send InitiateCapture to the camera (retries once on connection drop)."""
+        """Send InitiateCapture — fire-and-forget, retries once on dropped connection.
+
+        We do not wait for the camera's response: the shutter fires the moment
+        the camera receives the packet, so skipping the round-trip read removes
+        10–50 ms of WiFi latency from every shot.
+        """
         for attempt in range(2):
             self._ensure_connected()
-            print(f"[ptpip] InitiateCapture → (attempt {attempt + 1})")
             try:
                 # StorageID=0 (default), ObjectFormatCode=0 (default)
-                rc = self._op(_OP_INITIATE_CAPTURE, [0x00000000, 0x00000000])
-                if rc == _RC_OK:
-                    print("[ptpip] ← OK (shutter fired)")
-                else:
-                    print(f"[ptpip] ← 0x{rc:04X}")
+                self._send_op(_OP_INITIATE_CAPTURE, [0x00000000, 0x00000000])
                 return
             except OSError as e:
-                print(f"[ptpip] attempt {attempt + 1} failed: {e}")
+                print(f"[ptpip] send failed (attempt {attempt + 1}): {e}")
                 self.disconnect()   # force reconnect on next attempt
         print("[ptpip] fire() gave up after retry")
 
